@@ -142,7 +142,7 @@ func (c *Client) FetchTLSCert() (*x509.Certificate, error) {
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: true,
 	}
-	conn, err := tls.Dial("tcp", c.gatewayAddress+":443", tlsConfig)
+	conn, err := tls.Dial("tcp", DefaultPort(c.gatewayAddress, 443), tlsConfig)
 	if err != nil {
 		return nil, err
 	}
