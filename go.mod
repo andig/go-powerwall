@@ -1,4 +1,4 @@
-module github.com/foogod/go-powerwall
+module github.com/andig/go-powerwall
 
 go 1.18
 
