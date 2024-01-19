@@ -1,3 +1,5 @@
+[![Go Reference](https://pkg.go.dev/badge/github.com/andig/go-powerwall.svg)](https://pkg.go.dev/github.com/andig/go-powerwall)
+
 # go-powerwall
 
 A Go library for communicating with Tesla Powerwall appliances via the local-network API.
