@@ -32,7 +32,7 @@ type MeterAggregatesData struct {
 	ICCurrent                         float32   `json:"i_c_current"`
 	LastPhaseVoltageCommunicationTime time.Time `json:"last_phase_voltage_communication_time"`
 	LastPhasePowerCommunicationTime   time.Time `json:"last_phase_power_communication_time"`
-	Timeout                           int       `json:"timeout"`
+	Timeout                           int64     `json:"timeout"`
 	NumMetersAggregated               int       `json:"num_meters_aggregated"`
 	InstantTotalCurrent               float32   `json:"instant_total_current"`
 }
@@ -93,7 +93,7 @@ type MeterData struct {
 		ReactivePowerB                    float32   `json:"reactive_power_b"`
 		LastPhasePowerCommunicationTime   time.Time `json:"last_phase_power_communication_time"`
 		SerialNumber                      string    `json:"serial_number"`
-		Timeout                           int       `json:"timeout"`
+		Timeout                           int64     `json:"timeout"`
 		InstantTotalCurrent               float32   `json:"instant_total_current"`
 	} `json:"Cached_readings"`
 	CtVoltageReferences struct {
