@@ -18,6 +18,10 @@ type NonIsoTime struct {
 const nonIsoTimeFormat = "2006-01-02 15:04:05 -0700"
 
 func (v *NonIsoTime) UnmarshalJSON(p []byte) error {
+	// JSON null leaves the value unset, as encoding/json does for time.Time
+	if string(p) == "null" {
+		return nil
+	}
 	t, err := time.Parse(nonIsoTimeFormat, strings.Replace(string(p), `"`, ``, -1))
 	if err == nil {
 		*v = NonIsoTime{t}
@@ -35,6 +39,10 @@ type Duration struct {
 }
 
 func (v *Duration) UnmarshalJSON(p []byte) error {
+	// JSON null leaves the value unset, as encoding/json does for built-in types
+	if string(p) == "null" {
+		return nil
+	}
 	d, err := time.ParseDuration(strings.Replace(string(p), `"`, ``, -1))
 	if err == nil {
 		*v = Duration{d}
