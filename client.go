@@ -50,6 +50,8 @@ type Client struct {
 	auth_ch              chan *authMessage
 	retryInterval        time.Duration
 	retryTimeout         time.Duration
+	scheme               string
+	loginManager         LoginManager
 }
 
 // NewClient creates a new Client object.  gatewayAddress should be the IP
@@ -75,6 +77,7 @@ func NewClient(gatewayAddress, gatewayLoginEmail, gatewayLoginPassword string, o
 		httpClient:           httpClient,
 		token_ch:             make(chan string),
 		auth_ch:              make(chan *authMessage),
+		scheme:               "https",
 	}
 
 	for _, option := range options {
@@ -83,7 +86,11 @@ func NewClient(gatewayAddress, gatewayLoginEmail, gatewayLoginPassword string, o
 		}
 	}
 
-	go c.authManager()
+	if c.loginManager == nil {
+		manager := &defaultLoginManager{client: c}
+		c.loginManager = manager
+		go manager.run()
+	}
 
 	c.logf("New powerwall client created: gateway_address=%s email=%s", gatewayAddress, gatewayLoginEmail)
 	return c
@@ -93,6 +100,24 @@ func NewClient(gatewayAddress, gatewayLoginEmail, gatewayLoginPassword string, o
 func WithHttpClient(httpClient *http.Client) func(c *Client) {
 	return func(c *Client) {
 		c.httpClient = httpClient
+	}
+}
+
+// WithScheme sets the URL scheme for API requests (default "https").
+func WithScheme(scheme string) func(c *Client) {
+	return func(c *Client) {
+		c.scheme = scheme
+	}
+}
+
+// WithLoginManager sets the login manager used for authentication. Pass
+// NoopLoginManager{} for local proxies that handle authentication themselves.
+func WithLoginManager(manager LoginManager) func(c *Client) {
+	return func(c *Client) {
+		if manager == nil {
+			panic("powerwall: nil login manager")
+		}
+		c.loginManager = manager
 	}
 }
 
@@ -200,8 +225,15 @@ func (c *Client) doHttpRequest(api string, method string, payload []byte, conten
 	var resp *http.Response
 	var err error
 
+	scheme := strings.ToLower(c.scheme)
+	switch scheme {
+	case "http", "https":
+	default:
+		return nil, fmt.Errorf("unsupported scheme %q", c.scheme)
+	}
+
 	url := url.URL{
-		Scheme: "https",
+		Scheme: scheme,
 		Host:   c.gatewayAddress,
 		Path:   "api/" + api,
 	}
@@ -221,9 +253,9 @@ func (c *Client) doHttpRequest(api string, method string, payload []byte, conten
 		req.Header.Set("Content-Type", contentType)
 	}
 
-	if strings.HasPrefix(api, "login/") {
-		// If we're doing a login API call, don't set the auth cookie,
-		// or attempt to retry on auth issues.
+	if strings.HasPrefix(api, "login/") || !c.loginManager.Enabled() {
+		// Login calls and no-auth clients don't set the auth cookie or retry
+		// on auth issues.
 		resp, err = c.httpDo(req)
 		if err != nil {
 			return nil, err

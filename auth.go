@@ -11,6 +11,39 @@ import (
 	"errors"
 )
 
+// LoginManager abstracts the gateway authentication flow. Custom managers own
+// their lifecycle; the default manager starts the client's auth goroutine.
+type LoginManager interface {
+	DoLogin() error
+	CheckLogin() error
+	GetAuthToken() string
+	SetAuthToken(string)
+	Enabled() bool
+}
+
+// NoopLoginManager disables authentication for local proxies that expose the
+// gateway API without auth. It starts no goroutine and all auth calls are no-ops.
+type NoopLoginManager struct{}
+
+func (NoopLoginManager) DoLogin() error       { return nil }
+func (NoopLoginManager) CheckLogin() error    { return nil }
+func (NoopLoginManager) GetAuthToken() string { return "" }
+func (NoopLoginManager) SetAuthToken(string)  {}
+func (NoopLoginManager) Enabled() bool        { return false }
+
+type defaultLoginManager struct {
+	client *Client
+}
+
+func (m *defaultLoginManager) DoLogin() error       { return m.client.doLogin() }
+func (m *defaultLoginManager) CheckLogin() error    { return m.client.doCheckLogin() }
+func (m *defaultLoginManager) GetAuthToken() string { return m.client.getAuthToken() }
+func (m *defaultLoginManager) SetAuthToken(token string) {
+	m.client.setAuthToken(token)
+}
+func (m *defaultLoginManager) Enabled() bool { return true }
+func (m *defaultLoginManager) run()          { m.client.authManager() }
+
 const (
 	cmd_DO_LOGIN int = iota
 	cmd_CHECK_LOGIN
@@ -26,11 +59,32 @@ type authMessage struct {
 }
 
 // DoLogin logs into the Powerwall gateway and obtains an auth token which can
-// be used for subsequent API calls.  Note that you should not normally need to
-// call this explicitly.  The library will automatically attempt to login
-// anyway if a call is made which requires authentication and it is not already
-// successfully logged in.
+// be used for subsequent API calls. It is normally called automatically when
+// an API request requires authentication.
 func (c *Client) DoLogin() error {
+	return c.loginManager.DoLogin()
+}
+
+func (c *Client) checkLogin() error {
+	return c.loginManager.CheckLogin()
+}
+
+// GetAuthToken returns the current auth token in use. This can be saved and
+// then passed to SetAuthToken on later connections to re-use the same token
+// across Clients.
+func (c *Client) GetAuthToken() string {
+	return c.loginManager.GetAuthToken()
+}
+
+// SetAuthToken sets the provided string as the new auth token to use for
+// subsequent API calls.
+func (c *Client) SetAuthToken(token string) {
+	c.loginManager.SetAuthToken(token)
+}
+
+// doLogin logs into the Powerwall gateway and obtains an auth token which can
+// be used for subsequent API calls.
+func (c *Client) doLogin() error {
 	action := authMessage{
 		action:    cmd_DO_LOGIN,
 		email:     c.gatewayLoginEmail,
@@ -41,7 +95,7 @@ func (c *Client) DoLogin() error {
 	return <-action.result_ch
 }
 
-func (c *Client) checkLogin() error {
+func (c *Client) doCheckLogin() error {
 	action := authMessage{
 		action:    cmd_CHECK_LOGIN,
 		email:     c.gatewayLoginEmail,
@@ -52,16 +106,11 @@ func (c *Client) checkLogin() error {
 	return <-action.result_ch
 }
 
-// GetAuthToken returns the current auth token in use.  This can be saved and
-// then passed to SetAuthToken on later connections to re-use the same token
-// across Clients.
-func (c *Client) GetAuthToken() string {
+func (c *Client) getAuthToken() string {
 	return <-c.token_ch
 }
 
-// SetAuthToken sets the provided string as the new auth token to use for
-// subsequent API calls.
-func (c *Client) SetAuthToken(token string) {
+func (c *Client) setAuthToken(token string) {
 	c.auth_ch <- &authMessage{action: cmd_SET_TOKEN, token: token}
 	// Wait until we are sure the manager is returning the updated token before returning.
 	for {
