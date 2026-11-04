@@ -40,19 +40,13 @@ The client will automatically login to the device as needed, and will remember a
 
 ## Using a local proxy without gateway login
 
-Some local proxies, such as [pypowerwall-server](https://github.com/jasonacox/pypowerwall-server), expose the gateway API over plain HTTP and handle the gateway login themselves. Two opt-in options support that setup:
-
-- `WithScheme("http")` overrides the default `https` URL scheme.
-- `WithLoginManager(...)` sets the authentication manager. Passing `NoopLoginManager{}` disables authentication for local proxies that handle it themselves: no auth goroutine is started, no auth cookie is sent, and `DoLogin`/`GetAuthToken`/`SetAuthToken` are no-ops.
+Some local proxies, such as [pypowerwall-server](https://github.com/jasonacox/pypowerwall-server), expose the gateway API over plain HTTP and handle the gateway login themselves. Pass the full HTTP URL and an empty password:
 
 ```go
-client := powerwall.NewClient("127.0.0.1:8675", "", "",
-	powerwall.WithScheme("http"),
-	powerwall.WithLoginManager(powerwall.NoopLoginManager{}),
-)
+client := powerwall.NewClient("http://127.0.0.1:8675", "", "")
 ```
 
-Both options are additive; without them the client keeps the default HTTPS scheme and login behaviour.
+Without a scheme prefix the default remains HTTPS. An empty password disables login: no auth cookie is sent and 401/403 responses are not retried.
 
 ## TLS Certificates
 

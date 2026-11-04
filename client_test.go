@@ -4,12 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync/atomic"
 	"testing"
 )
 
-func TestNoopLoginManagerHTTPScheme(t *testing.T) {
+func TestHTTPSchemeWithoutLogin(t *testing.T) {
 	var loginCalls int32
 
 	mux := http.NewServeMux()
@@ -63,11 +62,9 @@ func TestNoopLoginManagerHTTPScheme(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient(
-		srv.Listener.Addr().String(),
+		"http://"+srv.Listener.Addr().String(),
 		"",
 		"",
-		WithScheme("http"),
-		WithLoginManager(NoopLoginManager{}),
 		WithHttpClient(srv.Client()),
 	)
 
@@ -124,14 +121,7 @@ func TestNoopLoginManagerHTTPScheme(t *testing.T) {
 	}
 }
 
-func TestUnsupportedScheme(t *testing.T) {
-	client := NewClient("127.0.0.1:1", "", "", WithScheme("ftp"), WithLoginManager(NoopLoginManager{}))
-	_, err := client.GetStatus()
-	if err == nil || !strings.Contains(err.Error(), "unsupported scheme") {
-		t.Fatalf("expected unsupported scheme error, got %v", err)
-	}
-}
-func TestDefaultLoginManager(t *testing.T) {
+func TestDefaultLogin(t *testing.T) {
 	var loginCalls int32
 
 	mux := http.NewServeMux()
@@ -153,14 +143,13 @@ func TestDefaultLoginManager(t *testing.T) {
 		})
 	})
 
-	srv := httptest.NewServer(mux)
+	srv := httptest.NewTLSServer(mux)
 	defer srv.Close()
 
 	client := NewClient(
 		srv.Listener.Addr().String(),
 		"user",
 		"pass",
-		WithScheme("http"),
 		WithHttpClient(srv.Client()),
 	)
 
@@ -177,13 +166,81 @@ func TestDefaultLoginManager(t *testing.T) {
 	}
 
 	status, err := client.GetStatus()
-	if err != nil {
-		t.Fatalf("GetStatus: %v", err)
-	}
-	if status.Din != "test-din" {
-		t.Fatalf("unexpected status: %+v", status)
+	if err != nil || status.Din != "test-din" {
+		t.Fatalf("unexpected status: %+v, err: %v", status, err)
 	}
 	if calls := atomic.LoadInt32(&loginCalls); calls != 1 {
 		t.Fatalf("unexpected login calls: %d", calls)
+	}
+}
+func TestEmptyPasswordDoesNotRetry(t *testing.T) {
+	var loginCalls, statusCalls int32
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/login/Basic", func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&loginCalls, 1)
+		http.Error(w, "login not expected", http.StatusInternalServerError)
+	})
+	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&statusCalls, 1)
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	client := NewClient("http://"+srv.Listener.Addr().String(), "", "", WithHttpClient(srv.Client()))
+	if _, err := client.GetStatus(); err == nil {
+		t.Fatal("expected unauthorized error")
+	}
+	if calls := atomic.LoadInt32(&loginCalls); calls != 0 {
+		t.Fatalf("unexpected login calls: %d", calls)
+	}
+	if calls := atomic.LoadInt32(&statusCalls); calls != 1 {
+		t.Fatalf("unexpected status calls: %d", calls)
+	}
+}
+
+func TestDefaultReauth(t *testing.T) {
+	var loginCalls, statusCalls int32
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/login/Basic", func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&loginCalls, 1)
+		_ = json.NewEncoder(w).Encode(map[string]any{"token": "test-token"})
+	})
+	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&statusCalls, 1)
+		cookie, err := r.Cookie("AuthCookie")
+		if err != nil || cookie.Value != "test-token" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"din":              "test-din",
+			"start_time":       "2020-01-01 00:00:00 +0000",
+			"up_time_seconds":  "1h2m3s",
+			"is_new":           false,
+			"version":          "1.0",
+			"git_hash":         "",
+			"commission_count": 0,
+			"device_type":      "test",
+			"sync_type":        "test",
+		})
+	})
+
+	srv := httptest.NewTLSServer(mux)
+	defer srv.Close()
+
+	client := NewClient(srv.Listener.Addr().String(), "user", "pass", WithHttpClient(srv.Client()))
+	status, err := client.GetStatus()
+	if err != nil || status.Din != "test-din" {
+		t.Fatalf("unexpected status: %+v, err: %v", status, err)
+	}
+	if calls := atomic.LoadInt32(&loginCalls); calls != 1 {
+		t.Fatalf("unexpected login calls: %d", calls)
+	}
+	if calls := atomic.LoadInt32(&statusCalls); calls < 2 {
+		t.Fatalf("unexpected status calls: %d", calls)
 	}
 }
