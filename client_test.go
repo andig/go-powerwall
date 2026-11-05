@@ -121,6 +121,49 @@ func TestHTTPSchemeWithoutLogin(t *testing.T) {
 	}
 }
 
+func TestHTTPSSchemeWithoutLogin(t *testing.T) {
+	var loginCalls int32
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/login/Basic", func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&loginCalls, 1)
+		http.Error(w, "login not expected", http.StatusInternalServerError)
+	})
+	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"din":              "test-din",
+			"start_time":       "2020-01-01 00:00:00 +0000",
+			"up_time_seconds":  "1h2m3s",
+			"is_new":           false,
+			"version":          "1.0",
+			"git_hash":         "",
+			"commission_count": 0,
+			"device_type":      "test",
+			"sync_type":        "test",
+		})
+	})
+
+	srv := httptest.NewTLSServer(mux)
+	defer srv.Close()
+
+	addr := srv.Listener.Addr().String()
+	client := NewClient("https://"+addr, "", "", WithHttpClient(srv.Client()))
+	if client.gatewayURL.Scheme != "https" || client.gatewayURL.Host != addr {
+		t.Fatalf("unexpected gateway URL: %s", client.gatewayURL)
+	}
+
+	status, err := client.GetStatus()
+	if err != nil {
+		t.Fatalf("GetStatus: %v", err)
+	}
+	if status.Din != "test-din" {
+		t.Fatalf("unexpected status: %+v", status)
+	}
+	if calls := atomic.LoadInt32(&loginCalls); calls != 0 {
+		t.Fatalf("unexpected login calls: %d", calls)
+	}
+}
+
 func TestDefaultLogin(t *testing.T) {
 	var loginCalls int32
 
