@@ -69,10 +69,14 @@ func NewClient(gatewayAddress, gatewayLoginEmail, gatewayLoginPassword string, o
 		Timeout:   time.Second * 2, // Timeout after 2 seconds
 	}
 
-	scheme, address := parseGatewayAddress(gatewayAddress)
+	scheme := "https"
+	if u, err := url.Parse(gatewayAddress); err == nil && u.Scheme != "" && u.Host != "" {
+		scheme = strings.ToLower(u.Scheme)
+		gatewayAddress = u.Host
+	}
 
 	c := &Client{
-		gatewayAddress:       address,
+		gatewayAddress:       gatewayAddress,
 		gatewayLoginEmail:    gatewayLoginEmail,
 		gatewayLoginPassword: gatewayLoginPassword,
 		httpClient:           httpClient,
@@ -191,20 +195,6 @@ func (c *Client) httpDo(req *http.Request) (*http.Response, error) {
 		time.Sleep(c.retryInterval - time.Since(attempt_time))
 	}
 	return resp, err
-}
-
-func parseGatewayAddress(address string) (scheme, host string) {
-	scheme = "https"
-	host = address
-
-	if strings.Contains(address, "://") {
-		if u, err := url.Parse(address); err == nil && u.Scheme != "" && u.Host != "" {
-			scheme = strings.ToLower(u.Scheme)
-			host = u.Host
-		}
-	}
-
-	return scheme, host
 }
 
 func (c *Client) doHttpRequest(api string, method string, payload []byte, contentType string) ([]byte, error) {
