@@ -50,7 +50,7 @@ type Client struct {
 	auth_ch              chan *authMessage
 	retryInterval        time.Duration
 	retryTimeout         time.Duration
-	scheme               string
+	gatewayURL           *url.URL
 }
 
 // NewClient creates a new Client object.  gatewayAddress should be the IP
@@ -82,7 +82,7 @@ func NewClient(gatewayAddress, gatewayLoginEmail, gatewayLoginPassword string, o
 		httpClient:           httpClient,
 		token_ch:             make(chan string),
 		auth_ch:              make(chan *authMessage),
-		scheme:               scheme,
+		gatewayURL:           &url.URL{Scheme: scheme, Host: gatewayAddress},
 	}
 
 	for _, option := range options {
@@ -208,21 +208,18 @@ func (c *Client) doHttpRequest(api string, method string, payload []byte, conten
 	var resp *http.Response
 	var err error
 
-	url := url.URL{
-		Scheme: c.scheme,
-		Host:   c.gatewayAddress,
-		Path:   "api/" + api,
-	}
+	requestURL := *c.gatewayURL
+	requestURL.Path = "api/" + api
 
-	c.logf("Calling API: method=%s url=%s body=%s", method, url.String(), logBody(api, payload, contentType))
+	c.logf("Calling API: method=%s url=%s body=%s", method, requestURL.String(), logBody(api, payload, contentType))
 
 	if payload == nil {
-		req, err = http.NewRequest(method, url.String(), nil)
+		req, err = http.NewRequest(method, requestURL.String(), nil)
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		req, err = http.NewRequest(method, url.String(), bytes.NewBuffer(payload))
+		req, err = http.NewRequest(method, requestURL.String(), bytes.NewBuffer(payload))
 		if err != nil {
 			return nil, err
 		}
@@ -285,7 +282,7 @@ func (c *Client) doHttpRequest(api string, method string, payload []byte, conten
 		errInfo := errorResponse{}
 		_ = json.Unmarshal(body, &errInfo)
 		return nil, AuthFailure{
-			URL:       url,
+			URL:       requestURL,
 			ErrorText: errInfo.Error,
 			Message:   errInfo.Message,
 		}
@@ -293,7 +290,7 @@ func (c *Client) doHttpRequest(api string, method string, payload []byte, conten
 		// We got an unexpected response
 		c.logf("Request failed: status=%d body=%s", resp.StatusCode, logBody("", body, resp.Header.Get("Content-Type")))
 		return body, ApiError{
-			URL:        url,
+			URL:        requestURL,
 			StatusCode: resp.StatusCode,
 			Body:       body,
 		}
