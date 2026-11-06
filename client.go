@@ -214,18 +214,18 @@ func (c *Client) doHttpRequest(api string, method string, payload []byte, conten
 	var resp *http.Response
 	var err error
 
-	requestURL := *c.gatewayURL
-	requestURL.Path += "/api/" + api
+	url := *c.gatewayURL
+	url.Path += "/api/" + api
 
-	c.logf("Calling API: method=%s url=%s body=%s", method, requestURL.String(), logBody(api, payload, contentType))
+	c.logf("Calling API: method=%s url=%s body=%s", method, url.String(), logBody(api, payload, contentType))
 
 	if payload == nil {
-		req, err = http.NewRequest(method, requestURL.String(), nil)
+		req, err = http.NewRequest(method, url.String(), nil)
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		req, err = http.NewRequest(method, requestURL.String(), bytes.NewBuffer(payload))
+		req, err = http.NewRequest(method, url.String(), bytes.NewBuffer(payload))
 		if err != nil {
 			return nil, err
 		}
@@ -288,7 +288,7 @@ func (c *Client) doHttpRequest(api string, method string, payload []byte, conten
 		errInfo := errorResponse{}
 		_ = json.Unmarshal(body, &errInfo)
 		return nil, AuthFailure{
-			URL:       requestURL,
+			URL:       url,
 			ErrorText: errInfo.Error,
 			Message:   errInfo.Message,
 		}
@@ -296,7 +296,7 @@ func (c *Client) doHttpRequest(api string, method string, payload []byte, conten
 		// We got an unexpected response
 		c.logf("Request failed: status=%d body=%s", resp.StatusCode, logBody("", body, resp.Header.Get("Content-Type")))
 		return body, ApiError{
-			URL:        requestURL,
+			URL:        url,
 			StatusCode: resp.StatusCode,
 			Body:       body,
 		}
