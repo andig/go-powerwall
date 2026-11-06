@@ -38,6 +38,16 @@ func main() {
 
 The client will automatically login to the device as needed, and will remember and re-use the auth-token between calls.  It will also automatically re-login if necessary (i.e. if the token expires).
 
+## Using a local proxy without gateway login
+
+Some local proxies, such as [pypowerwall-server](https://github.com/jasonacox/pypowerwall-server), expose the gateway API over plain HTTP and handle the gateway login themselves. Pass the full HTTP URL and an empty password:
+
+```go
+client := powerwall.NewClient("http://127.0.0.1:8675", "", "")
+```
+
+Without a scheme prefix the default remains HTTPS. A path, e.g. `http://127.0.0.1:8675/powerwall`, is used as prefix for all API calls. An empty password disables login: no auth cookie is sent and 401/403 responses are not retried.
+
 ## TLS Certificates
 
 The Tesla gateway uses a self-signed certificate, which means that it shows up as invalid by default (because it is not signed by any known authority).  For this reason, the default behavior of the client is to not try to validate the TLS certificate when connecting.  This works, but it is insecure, as it is possible for someone else to impersonate the gateway instead (a "man in the middle attack").  If a more secure configuration is desired, the library does support a way to do full TLS validation, but you will need to provide it with a copy of the certificate to validate against after creating the client, using the `SetTLSCert` function.

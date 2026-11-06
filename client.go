@@ -50,6 +50,7 @@ type Client struct {
 	auth_ch              chan *authMessage
 	retryInterval        time.Duration
 	retryTimeout         time.Duration
+	gatewayURL           *url.URL
 }
 
 // NewClient creates a new Client object.  gatewayAddress should be the IP
@@ -68,6 +69,12 @@ func NewClient(gatewayAddress, gatewayLoginEmail, gatewayLoginPassword string, o
 		Timeout:   time.Second * 2, // Timeout after 2 seconds
 	}
 
+	gatewayURL := &url.URL{Scheme: "https", Host: gatewayAddress}
+	if u, err := url.Parse(gatewayAddress); err == nil && u.Scheme != "" && u.Host != "" {
+		gatewayURL = &url.URL{Scheme: strings.ToLower(u.Scheme), Host: u.Host, Path: strings.TrimSuffix(u.Path, "/")}
+		gatewayAddress = u.Host
+	}
+
 	c := &Client{
 		gatewayAddress:       gatewayAddress,
 		gatewayLoginEmail:    gatewayLoginEmail,
@@ -75,6 +82,7 @@ func NewClient(gatewayAddress, gatewayLoginEmail, gatewayLoginPassword string, o
 		httpClient:           httpClient,
 		token_ch:             make(chan string),
 		auth_ch:              make(chan *authMessage),
+		gatewayURL:           gatewayURL,
 	}
 
 	for _, option := range options {
@@ -83,7 +91,9 @@ func NewClient(gatewayAddress, gatewayLoginEmail, gatewayLoginPassword string, o
 		}
 	}
 
-	go c.authManager()
+	if !c.loginDisabled() {
+		go c.authManager()
+	}
 
 	c.logf("New powerwall client created: gateway_address=%s email=%s", gatewayAddress, gatewayLoginEmail)
 	return c
@@ -139,6 +149,10 @@ func (c *Client) SetTLSCert(cert *x509.Certificate) {
 // it is currently presenting for connections.  This is useful for saving and
 // later using with `SetTLSCert` to validate future connections.
 func (c *Client) FetchTLSCert() (*x509.Certificate, error) {
+	if c.gatewayURL.Scheme != "https" {
+		return nil, fmt.Errorf("cannot fetch TLS certificate for %s gateway URL", c.gatewayURL.Scheme)
+	}
+
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: true,
 	}
@@ -200,11 +214,8 @@ func (c *Client) doHttpRequest(api string, method string, payload []byte, conten
 	var resp *http.Response
 	var err error
 
-	url := url.URL{
-		Scheme: "https",
-		Host:   c.gatewayAddress,
-		Path:   "api/" + api,
-	}
+	url := *c.gatewayURL
+	url.Path += "/api/" + api
 
 	c.logf("Calling API: method=%s url=%s body=%s", method, url.String(), logBody(api, payload, contentType))
 
@@ -221,9 +232,9 @@ func (c *Client) doHttpRequest(api string, method string, payload []byte, conten
 		req.Header.Set("Content-Type", contentType)
 	}
 
-	if strings.HasPrefix(api, "login/") {
-		// If we're doing a login API call, don't set the auth cookie,
-		// or attempt to retry on auth issues.
+	if strings.HasPrefix(api, "login/") || c.loginDisabled() {
+		// Login calls and empty-password clients don't set the auth cookie
+		// or retry on auth issues.
 		resp, err = c.httpDo(req)
 		if err != nil {
 			return nil, err
