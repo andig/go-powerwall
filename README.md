@@ -46,7 +46,7 @@ Some local proxies, such as [pypowerwall-server](https://github.com/jasonacox/py
 client := powerwall.NewClient("http://127.0.0.1:8675", "", "")
 ```
 
-Without a scheme prefix the default remains HTTPS. An empty password disables login: no auth cookie is sent and 401/403 responses are not retried.
+Without a scheme prefix the default remains HTTPS. A path, e.g. `http://127.0.0.1:8675/powerwall`, is used as prefix for all API calls. An empty password disables login: no auth cookie is sent and 401/403 responses are not retried.
 
 ## TLS Certificates
 
@@ -115,3 +115,4 @@ func main() {
 ```
 
 (The arguments to the log function are the same as for Sprintf/etc.  Note, however, that generated log lines are not terminated with "\n", so you will need to add a newline if you are sending them to something like `fmt.Printf` directly.)
+

@@ -69,9 +69,9 @@ func NewClient(gatewayAddress, gatewayLoginEmail, gatewayLoginPassword string, o
 		Timeout:   time.Second * 2, // Timeout after 2 seconds
 	}
 
-	scheme := "https"
+	gatewayURL := &url.URL{Scheme: "https", Host: gatewayAddress}
 	if u, err := url.Parse(gatewayAddress); err == nil && u.Scheme != "" && u.Host != "" {
-		scheme = strings.ToLower(u.Scheme)
+		gatewayURL = &url.URL{Scheme: strings.ToLower(u.Scheme), Host: u.Host, Path: strings.TrimSuffix(u.Path, "/")}
 		gatewayAddress = u.Host
 	}
 
@@ -82,7 +82,7 @@ func NewClient(gatewayAddress, gatewayLoginEmail, gatewayLoginPassword string, o
 		httpClient:           httpClient,
 		token_ch:             make(chan string),
 		auth_ch:              make(chan *authMessage),
-		gatewayURL:           &url.URL{Scheme: scheme, Host: gatewayAddress},
+		gatewayURL:           gatewayURL,
 	}
 
 	for _, option := range options {
@@ -91,7 +91,9 @@ func NewClient(gatewayAddress, gatewayLoginEmail, gatewayLoginPassword string, o
 		}
 	}
 
-	go c.authManager()
+	if !c.loginDisabled() {
+		go c.authManager()
+	}
 
 	c.logf("New powerwall client created: gateway_address=%s email=%s", gatewayAddress, gatewayLoginEmail)
 	return c
@@ -147,6 +149,10 @@ func (c *Client) SetTLSCert(cert *x509.Certificate) {
 // it is currently presenting for connections.  This is useful for saving and
 // later using with `SetTLSCert` to validate future connections.
 func (c *Client) FetchTLSCert() (*x509.Certificate, error) {
+	if c.gatewayURL.Scheme != "https" {
+		return nil, fmt.Errorf("cannot fetch TLS certificate for %s gateway URL", c.gatewayURL.Scheme)
+	}
+
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: true,
 	}
@@ -209,7 +215,7 @@ func (c *Client) doHttpRequest(api string, method string, payload []byte, conten
 	var err error
 
 	requestURL := *c.gatewayURL
-	requestURL.Path = "api/" + api
+	requestURL.Path += "/api/" + api
 
 	c.logf("Calling API: method=%s url=%s body=%s", method, requestURL.String(), logBody(api, payload, contentType))
 
@@ -226,7 +232,7 @@ func (c *Client) doHttpRequest(api string, method string, payload []byte, conten
 		req.Header.Set("Content-Type", contentType)
 	}
 
-	if strings.HasPrefix(api, "login/") || c.gatewayLoginPassword == "" {
+	if strings.HasPrefix(api, "login/") || c.loginDisabled() {
 		// Login calls and empty-password clients don't set the auth cookie
 		// or retry on auth issues.
 		resp, err = c.httpDo(req)

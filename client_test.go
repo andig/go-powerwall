@@ -8,6 +8,20 @@ import (
 	"testing"
 )
 
+func writeStatus(w http.ResponseWriter) {
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"din":              "test-din",
+		"start_time":       "2020-01-01 00:00:00 +0000",
+		"up_time_seconds":  "1h2m3s",
+		"is_new":           false,
+		"version":          "1.0",
+		"git_hash":         "",
+		"commission_count": 0,
+		"device_type":      "test",
+		"sync_type":        "test",
+	})
+}
+
 func TestHTTPSchemeWithoutLogin(t *testing.T) {
 	var loginCalls int32
 
@@ -16,19 +30,7 @@ func TestHTTPSchemeWithoutLogin(t *testing.T) {
 		atomic.AddInt32(&loginCalls, 1)
 		http.Error(w, "login not expected", http.StatusInternalServerError)
 	})
-	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"din":              "test-din",
-			"start_time":       "2020-01-01 00:00:00 +0000",
-			"up_time_seconds":  "1h2m3s",
-			"is_new":           false,
-			"version":          "1.0",
-			"git_hash":         "",
-			"commission_count": 0,
-			"device_type":      "test",
-			"sync_type":        "test",
-		})
-	})
+	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) { writeStatus(w) })
 	mux.HandleFunc("/api/meters/aggregates", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"site": map[string]any{
@@ -129,19 +131,7 @@ func TestHTTPSSchemeWithoutLogin(t *testing.T) {
 		atomic.AddInt32(&loginCalls, 1)
 		http.Error(w, "login not expected", http.StatusInternalServerError)
 	})
-	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"din":              "test-din",
-			"start_time":       "2020-01-01 00:00:00 +0000",
-			"up_time_seconds":  "1h2m3s",
-			"is_new":           false,
-			"version":          "1.0",
-			"git_hash":         "",
-			"commission_count": 0,
-			"device_type":      "test",
-			"sync_type":        "test",
-		})
-	})
+	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) { writeStatus(w) })
 
 	srv := httptest.NewTLSServer(mux)
 	defer srv.Close()
@@ -172,19 +162,7 @@ func TestDefaultLogin(t *testing.T) {
 		atomic.AddInt32(&loginCalls, 1)
 		_ = json.NewEncoder(w).Encode(map[string]any{"token": "test-token"})
 	})
-	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"din":              "test-din",
-			"start_time":       "2020-01-01 00:00:00 +0000",
-			"up_time_seconds":  "1h2m3s",
-			"is_new":           false,
-			"version":          "1.0",
-			"git_hash":         "",
-			"commission_count": 0,
-			"device_type":      "test",
-			"sync_type":        "test",
-		})
-	})
+	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) { writeStatus(w) })
 
 	srv := httptest.NewTLSServer(mux)
 	defer srv.Close()
@@ -216,6 +194,7 @@ func TestDefaultLogin(t *testing.T) {
 		t.Fatalf("unexpected login calls: %d", calls)
 	}
 }
+
 func TestEmptyPasswordDoesNotRetry(t *testing.T) {
 	var loginCalls, statusCalls int32
 
@@ -259,17 +238,7 @@ func TestDefaultReauth(t *testing.T) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"din":              "test-din",
-			"start_time":       "2020-01-01 00:00:00 +0000",
-			"up_time_seconds":  "1h2m3s",
-			"is_new":           false,
-			"version":          "1.0",
-			"git_hash":         "",
-			"commission_count": 0,
-			"device_type":      "test",
-			"sync_type":        "test",
-		})
+		writeStatus(w)
 	})
 
 	srv := httptest.NewTLSServer(mux)
@@ -285,5 +254,25 @@ func TestDefaultReauth(t *testing.T) {
 	}
 	if calls := atomic.LoadInt32(&statusCalls); calls < 2 {
 		t.Fatalf("unexpected status calls: %d", calls)
+	}
+}
+
+func TestURLPathPrefix(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/proxy/api/status", func(w http.ResponseWriter, r *http.Request) { writeStatus(w) })
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	client := NewClient("http://"+srv.Listener.Addr().String()+"/proxy/", "", "", WithHttpClient(srv.Client()))
+	if status, err := client.GetStatus(); err != nil || status.Din != "test-din" {
+		t.Fatalf("unexpected status: %+v, err: %v", status, err)
+	}
+}
+
+func TestFetchTLSCertRequiresHTTPS(t *testing.T) {
+	client := NewClient("http://127.0.0.1:1", "", "")
+	if _, err := client.FetchTLSCert(); err == nil {
+		t.Fatal("expected error for http gateway URL")
 	}
 }

@@ -25,13 +25,18 @@ type authMessage struct {
 	result_ch chan error
 }
 
+// loginDisabled reports whether login is disabled, i.e. no password is configured
+func (c *Client) loginDisabled() bool {
+	return c.gatewayLoginPassword == ""
+}
+
 // DoLogin logs into the Powerwall gateway and obtains an auth token which can
 // be used for subsequent API calls.  Note that you should not normally need to
 // call this explicitly.  The library will automatically attempt to login
 // anyway if a call is made which requires authentication and it is not already
 // successfully logged in.
 func (c *Client) DoLogin() error {
-	if c.gatewayLoginPassword == "" {
+	if c.loginDisabled() {
 		return nil
 	}
 
@@ -46,7 +51,7 @@ func (c *Client) DoLogin() error {
 }
 
 func (c *Client) checkLogin() error {
-	if c.gatewayLoginPassword == "" {
+	if c.loginDisabled() {
 		return nil
 	}
 
@@ -64,7 +69,7 @@ func (c *Client) checkLogin() error {
 // then passed to SetAuthToken on later connections to re-use the same token
 // across Clients.
 func (c *Client) GetAuthToken() string {
-	if c.gatewayLoginPassword == "" {
+	if c.loginDisabled() {
 		return ""
 	}
 	return <-c.token_ch
@@ -73,7 +78,7 @@ func (c *Client) GetAuthToken() string {
 // SetAuthToken sets the provided string as the new auth token to use for
 // subsequent API calls.
 func (c *Client) SetAuthToken(token string) {
-	if c.gatewayLoginPassword == "" {
+	if c.loginDisabled() {
 		return
 	}
 
